@@ -28,7 +28,7 @@ def download_youtube_audio(url :str) ->str:
         ],
     }
     #it creates a .wav file in the download directory with the same name as the video title
-     try:
+    try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
 
@@ -46,7 +46,6 @@ def download_youtube_audio(url :str) ->str:
         raise RuntimeError(
             f"Unable to download this YouTube video. It may be private, age-restricted, region-locked, or blocked by YouTube. Original error: {e}"
         )
-
 
 
 #optimize the audio for better transcription accuracy by converting it to mono and resampling to 16kHz
