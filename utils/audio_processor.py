@@ -31,8 +31,16 @@ def download_youtube_audio(url :str) ->str:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info).replace(".webm", ".wav").replace(".m4a", ".wav")
-        return filename
+
+            if info.get("requested_downloads"):
+                downloaded = info["requested_downloads"][0]
+                base_path = downloaded.get("filepath") or ydl.prepare_filename(info)
+            else:
+                base_path = ydl.prepare_filename(info)
+
+            wav_path = os.path.splitext(base_path)[0] + ".wav"
+
+        return wav_path
 
     except Exception as e:
         raise RuntimeError(
