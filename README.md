@@ -628,3 +628,15 @@ The platform includes a real-time analytics dashboard.
 - Cloud deployment
 
 ---
+## Core Libraries
+
+- LangChain
+- langchain-openai
+- langchain-cohere
+- langchain-community
+- langchain-chroma
+- ChromaDB
+- Streamlit
+- OpenAI SDK
+- Mistral AI SDK
+- DuckDuckGo Search
