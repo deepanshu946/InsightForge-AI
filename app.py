@@ -1,14 +1,20 @@
 import streamlit as st
 import time
+import os
 import pandas as pd
 from dotenv import load_dotenv
 from utils.audio_processor import process_input
+from utils.env_check import validate_environment
+from utils.chapter_parser import parse_chapters
+from utils.exporter import build_txt_report, build_pdf_report, safe_filename
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_action_items, extract_key_decisions, extract_questions
-from core.rag_engine import build_rag_chain, ask_question
+from core.rag_engine import build_rag_chain, ask_question, rebuild_rag_chain
+from core.history_store import init_db, get_video_id, save_video, list_videos, load_video
 
 load_dotenv()
+init_db()
 
 # ─── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -331,9 +337,9 @@ label { color: var(--text-muted) !important; font-size: 0.8rem !important; }
 for key, default in {
     "result": None,
     "chat_history": [],
-    "processing": False,
     "pipeline_done": False,
     "pipeline_steps": {},
+    "video_seek_seconds": 0,
     "analytics": {
         "videos_processed": 0,
         "questions_asked": 0,
@@ -418,6 +424,34 @@ with st.sidebar:
         ]:
             render_step_bar(label, step, icon)
 
+    st.markdown("---")
+    st.markdown('<span class="badge badge-green">History</span>', unsafe_allow_html=True)
+    videos = list_videos()
+    if not videos:
+        st.caption("No videos analysed yet.")
+    for v in videos[:20]:
+        label = f"{(v['title'] or 'Untitled')[:40]} — {v['processed_at'][:10]}"
+        if st.button(label, key=f"hist_{v['video_id']}", use_container_width=True):
+            row = load_video(v["video_id"])
+            if row:
+                rag_chain = rebuild_rag_chain(row["video_id"], row["chunks"])
+                st.session_state.result = {
+                    "title": row["title"],
+                    "transcript": row["transcript"],
+                    "summary": row["summary"],
+                    "action_items": row["action_items"],
+                    "key_decisions": row["key_decisions"],
+                    "open_questions": row["open_questions"],
+                    "rag_chain": rag_chain,
+                    "video_id": row["video_id"],
+                    "source": row["source"],
+                }
+                st.session_state.chat_history = []
+                st.session_state.chunk_count = row["chunk_count"]
+                st.session_state.pipeline_done = True
+                st.session_state.video_seek_seconds = 0
+                st.rerun()
+
 # ─── Main Area ──────────────────────────────────────────────────────────────────
 st.markdown('''
 <div class="hero-title">
@@ -455,6 +489,9 @@ st.markdown("---")
 if run_btn:
     if not source.strip():
         st.error("Please enter a YouTube URL or file path.")
+    elif (env_errors := validate_environment(language)):
+        for err in env_errors:
+            st.error(f"⚠️ {err}")
     else:
         st.session_state.pipeline_done = False
         st.session_state.result = None
@@ -496,13 +533,29 @@ if run_btn:
             questions     = extract_questions(transcript)
             update_step("extract", "done")
 
+            video_id = get_video_id(source)
+
             update_step("rag", "active")
-            rag_chain = build_rag_chain(transcript)
+            rag_chain = build_rag_chain(transcript, video_id=video_id)
             update_step("rag", "done")
 
             pipeline_elapsed = time.perf_counter() - pipeline_start
             st.session_state.analytics["videos_processed"] += 1
             st.session_state.analytics["pipeline_times"].append(pipeline_elapsed)
+
+            save_video(
+                video_id=video_id,
+                source=source,
+                title=title,
+                transcript=transcript,
+                summary=summary,
+                action_items=action_items,
+                key_decisions=decisions,
+                open_questions=questions,
+                chunk_count=rag_chain["chunk_count"],
+                chunks=rag_chain["chunks"],
+                language=language,
+            )
 
             st.session_state.result = {
                 "title": title,
@@ -512,6 +565,8 @@ if run_btn:
                 "key_decisions": decisions,
                 "open_questions": questions,
                 "rag_chain": rag_chain,
+                "video_id": video_id,
+                "source": source,
             }
             st.session_state.pipeline_done = True
             progress_placeholder.success("✅ Analysis complete!")
@@ -537,6 +592,24 @@ if st.session_state.result:
             {r['title']}
         </div>
     </div>""", unsafe_allow_html=True)
+
+    export_c1, export_c2 = st.columns(2)
+    with export_c1:
+        st.download_button(
+            "⬇️ Download TXT Report",
+            data=build_txt_report(r),
+            file_name=f"{safe_filename(r['title'])}_report.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    with export_c2:
+        st.download_button(
+            "⬇️ Download PDF Report",
+            data=build_pdf_report(r),
+            file_name=f"{safe_filename(r['title'])}_report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
 
     # KPI strip
     transcript_words = len(r["transcript"].split())
@@ -603,12 +676,34 @@ if st.session_state.result:
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                st.markdown(f"""
-                <div class='card'>
-                    <div class='card-title'>✅ Action Items</div>
-                    <div class='card-content'>{r['action_items']}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown("<div class='card-title'>🎬 Chapters</div>", unsafe_allow_html=True)
+                chapters = parse_chapters(r["action_items"])
+                source_path = r.get("source")
+                if source_path:
+                    if source_path.startswith("http://") or source_path.startswith("https://") or os.path.exists(source_path):
+                        st.video(
+                            source_path,
+                            start_time=st.session_state.video_seek_seconds,
+                        )
+                    else:
+                        st.warning("Original video file no longer found — playback unavailable.")
+
+                if chapters:
+                    for ch in chapters:
+                        bcol, tcol = st.columns([1, 6])
+                        with bcol:
+                            if st.button("▶", key=f"jump_{ch['time_seconds']}"):
+                                st.session_state.video_seek_seconds = ch["time_seconds"]
+                                st.rerun()
+                        with tcol:
+                            mm, ss = divmod(ch["time_seconds"], 60)
+                            st.markdown(f"**[{mm:02d}:{ss:02d}] {ch['title']}**  \n{ch['description']}")
+                else:
+                    st.markdown(f"""
+                    <div class='card'>
+                        <div class='card-content'>{r['action_items']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
             with c2:
                 st.markdown(f"""

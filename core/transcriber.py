@@ -8,6 +8,8 @@ load_dotenv()
 
 from openai import OpenAI
 
+from utils.retry import with_retry
+
 # Sarvam's sync STT-translate API rejects audio longer than 30s.
 # We slice each chunk into 25s pieces (with a 5s safety margin) before sending.
 SARVAM_PIECE_SECONDS = 25
@@ -116,7 +118,13 @@ def transcribe_chunk_sarvam(chunk_path: str) -> str:
 
         try:
             print(f"  → Sarvam piece {i + 1}/{total_pieces} ...")
-            full_text += _send_to_sarvam(piece_path) + " "
+            full_text += with_retry(
+                _send_to_sarvam,
+                piece_path,
+                max_retries=3,
+                retry_exceptions=(requests.RequestException,),
+                label="Sarvam transcription",
+            ) + " "
         finally:
             if os.path.exists(piece_path):
                 os.remove(piece_path)
@@ -149,7 +157,14 @@ def transcribe_all(chunks: list, language: str = "english") -> str:
     def process_chunk(args):
         index, chunk = args
         print(f"Transcribing chunk {index + 1}/{len(chunks)}...")
-        return transcribe_chunk(chunk, language=language)
+        try:
+            return transcribe_chunk(chunk, language=language)
+        finally:
+            if os.path.exists(chunk):
+                try:
+                    os.remove(chunk)
+                except Exception as e:
+                    print(f"Warning: could not delete chunk file {chunk}: {e}")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         texts = list(executor.map(process_chunk, enumerate(chunks)))

@@ -1,14 +1,34 @@
 import os
-from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools import DuckDuckGoSearchResults
-from core.vector_store import build_vector_store, get_hybrid_retriever
+from core.vector_store import build_vector_store, load_vector_store, get_hybrid_retriever
+from utils.retry import with_retry
+
+_RAG_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        """You are an expert YouTube video assistant.
+
+Answer the user's question using ONLY the information from the provided YouTube transcript context.
+
+If the answer is not present in the transcript, respond with:
+"I could not find this information in the video transcript."
+
+Be clear, concise, and accurate. When summarizing, focus on the key points discussed in the video. If quoting or referencing a speaker, make that clear.
+
+Video transcript context:
+{context}""",
+    ),
+    ("human", "{question}"),
+])
+
 
 def get_llm():
-    return ChatMistralAI(
-        model="mistral-small-latest",
-        mistral_api_key=os.getenv("MISTRAL_API_KEY"),
+    return ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=os.getenv("OPENAI_API_KEY"),
         temperature=0.3,
     )
 
@@ -82,42 +102,33 @@ def format_context(retrieved: list[dict]) -> tuple[str, list[dict]]:
         })
     return "\n\n".join(context_parts), sources
 
-def build_rag_chain(transcript: str):
-    vector_store = build_vector_store(transcript)
+def build_rag_chain(transcript: str, video_id: str = None):
+    vector_store, chunks = build_vector_store(transcript, video_id=video_id)
     retriever    = get_hybrid_retriever(vector_store, k=4)
     llm          = get_llm()
-
-    chunk_count = None
-    try:
-        if hasattr(vector_store, "docstore") and hasattr(vector_store.docstore, "_dict"):
-            chunk_count = len(vector_store.docstore._dict)
-    except Exception:
-        chunk_count = None
-
-    prompt = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            """You are an expert YouTube video assistant.
-
-Answer the user's question using ONLY the information from the provided YouTube transcript context.
-
-If the answer is not present in the transcript, respond with:
-"I could not find this information in the video transcript."
-
-Be clear, concise, and accurate. When summarizing, focus on the key points discussed in the video. If quoting or referencing a speaker, make that clear.
-
-Video transcript context:
-{context}""",
-        ),
-        ("human", "{question}"),
-    ])
 
     # Return a plain dict — NOT a RunnableSequence
     return {
         "retriever": retriever,
-        "prompt": prompt,
+        "prompt": _RAG_PROMPT,
         "llm": llm,
-        "chunk_count": chunk_count,
+        "chunk_count": len(chunks),
+        "chunks": chunks,
+    }
+
+
+def rebuild_rag_chain(video_id: str, chunks: list):
+    """Reload a previously persisted video's RAG chain without re-embedding."""
+    vector_store = load_vector_store(video_id, chunks)
+    retriever    = get_hybrid_retriever(vector_store, k=4)
+    llm          = get_llm()
+
+    return {
+        "retriever": retriever,
+        "prompt": _RAG_PROMPT,
+        "llm": llm,
+        "chunk_count": len(chunks),
+        "chunks": chunks,
     }
 
 
@@ -132,11 +143,13 @@ def ask_question(rag_chain: dict, question: str) -> dict:
 
     # Build and run the chain with pre-fetched context
     chain = prompt | llm | StrOutputParser()
-    rag_answer = chain.invoke(
+    rag_answer = with_retry(
+        chain.invoke,
         {
             "context": context,
             "question": question,
-        }
+        },
+        label="RAG answer",
     )
 
     no_answer_phrases = [

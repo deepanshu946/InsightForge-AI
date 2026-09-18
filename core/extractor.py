@@ -1,14 +1,16 @@
 #Actionableitems , decision , questions 
 
-from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-import os 
+import os
+
+from utils.retry import with_retry
 
 
 def get_llm():
-    return ChatMistralAI(model = "mistral-small-latest", mistral_api_key = os.getenv("MISTRAL_API_KEY"),temperature=0.2)
+    return ChatOpenAI(model = "gpt-4o-mini", api_key = os.getenv("OPENAI_API_KEY"),temperature=0.2)
 
 
 
@@ -49,7 +51,7 @@ def extract_action_items(transcript:str)->str:
         Continue until the end of the video."""
     )
 
-    return chain.invoke(transcript)
+    return with_retry(chain.invoke, transcript, label="LLM extraction")
 
 
 def extract_key_decisions(transcript: str) -> str:
@@ -75,7 +77,7 @@ def extract_key_decisions(transcript: str) -> str:
         If no significant learnings are present, state:
         'No major takeaways identified.'"""
     )
-    return chain.invoke(transcript)
+    return with_retry(chain.invoke, transcript, label="LLM extraction")
 
 
 def extract_questions(transcript: str) -> str:
@@ -101,4 +103,4 @@ def extract_questions(transcript: str) -> str:
 
         Continue for all important topics."""
     )
-    return chain.invoke(transcript)
+    return with_retry(chain.invoke, transcript, label="LLM extraction")

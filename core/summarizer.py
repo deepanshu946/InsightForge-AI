@@ -1,13 +1,15 @@
-from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
-import os 
+import os
+
+from utils.retry import with_retry
 
 def get_llm():
-    return ChatMistralAI(model = "mistral-small-latest", mistral_api_key = os.getenv("MISTRAL_API_KEY"),temperature=0.3)
+    return ChatOpenAI(model = "gpt-4o-mini", api_key = os.getenv("OPENAI_API_KEY"),temperature=0.3)
 
 
 def split_transcript(transcript: str) -> list:
@@ -47,7 +49,10 @@ def summarize(transcript : str) -> str:
 
     chunks = split_transcript(transcript)
 
-    chunk_summaries = [map_chain.invoke({"text" : chunk}) for chunk in chunks]
+    chunk_summaries = [
+        with_retry(map_chain.invoke, {"text": chunk}, label="Summary chunk")
+        for chunk in chunks
+    ]
 
     combined = "\n\n".join(chunk_summaries)
 
@@ -93,7 +98,7 @@ def summarize(transcript : str) -> str:
         RunnablePassthrough() | RunnableLambda(lambda x:{"text":x}) | combined_prompt | llm | StrOutputParser()
     )
 
-    return combined_chain.invoke(combined)
+    return with_retry(combined_chain.invoke, combined, label="Summary combine")
 
 def generate_title(transcipt : str) -> str:
     llm = get_llm()
@@ -113,7 +118,7 @@ def generate_title(transcipt : str) -> str:
         RunnablePassthrough() | RunnableLambda(lambda x:{"text":x}) | title_prompt | llm | StrOutputParser()
     )
 
-    return title_chain.invoke(transcipt)
+    return with_retry(title_chain.invoke, transcipt, label="Title generation")
 
 
 

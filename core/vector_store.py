@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
@@ -5,6 +6,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
 from langchain_cohere import CohereRerank
+
+from utils.retry import with_retry
 
 
 COLLECTION_NAME = "meeting_transcript"
@@ -23,7 +26,7 @@ def get_reranker():
     )
 
 
-def build_vector_store(transcript: str) -> Chroma:
+def build_vector_store(transcript: str, video_id: str = None):
     print("Building vector store")
 
     splitter = RecursiveCharacterTextSplitter(
@@ -42,15 +45,43 @@ def build_vector_store(transcript: str) -> Chroma:
     bm25_retriever = BM25Retriever.from_documents(docs)
 
     embeddings = get_embeddings()
-    vector_store = Chroma.from_documents(
-        documents=docs,
-        embedding=embeddings,
-        collection_name=COLLECTION_NAME,
-    )
+    chroma_kwargs = dict(documents=docs, embedding=embeddings)
+    if video_id:
+        # Per-video persisted collection — distinct from the legacy shared
+        # COLLECTION_NAME so this never collides with older in-memory runs.
+        chroma_kwargs["collection_name"] = f"video_{video_id}"
+        chroma_kwargs["persist_directory"] = os.path.join("vector_db", video_id)
+    else:
+        chroma_kwargs["collection_name"] = COLLECTION_NAME
+
+    vector_store = Chroma.from_documents(**chroma_kwargs)
 
     # Single source of truth — session_state only
     st.session_state.vector_store = vector_store
     st.session_state.bm25_retriever = bm25_retriever
+
+    return vector_store, chunks
+
+
+def load_vector_store(video_id: str, chunks: list):
+    """Reattach to a persisted Chroma collection and rebuild BM25 from the
+    stored chunk texts (BM25 itself is never persisted by langchain)."""
+    embeddings = get_embeddings()
+    vector_store = Chroma(
+        collection_name=f"video_{video_id}",
+        embedding_function=embeddings,
+        persist_directory=os.path.join("vector_db", video_id),
+    )
+
+    docs = [
+        Document(page_content=chunk, metadata={"chunk_index": i})
+        for i, chunk in enumerate(chunks)
+    ]
+    bm25_retriever = BM25Retriever.from_documents(docs)
+
+    st.session_state.vector_store = vector_store
+    st.session_state.bm25_retriever = bm25_retriever
+    st.session_state.chunk_count = len(chunks)
 
     return vector_store
 
@@ -144,9 +175,13 @@ class HybridRetriever:
 
         candidate_docs = [item["doc"] for item in fused[:candidate_k]]
 
-        reranked_docs = self.reranker.compress_documents(
+        reranked_docs = with_retry(
+            self.reranker.compress_documents,
             documents=candidate_docs,
             query=query,
+            max_retries=2,
+            base_delay=2.0,
+            label="Cohere rerank",
         )
 
         metadata_lookup = {

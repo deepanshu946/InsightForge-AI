@@ -78,23 +78,25 @@ def chunk_audio(wav_path : str , chunk_minutes : int = 10) -> list:
 
 #trigger the entire processing pipeline based on the input source, whether it's a YouTube URL or a local file. It will return a list of paths to the processed audio chunks ready for transcription.
 def process_input(source: str) -> list:
-    if source.startswith("http://") or source.startswith("https://"):
-        print("Detected YouTube URL. Downloading audio...")
-        wav_path = download_youtube_audio(source)
-        st.session_state.temp_wav_path = wav_path
-    else:
-        print("Detected local file. Converting to WAV...")
-        wav_path = convert_to_wav(source)
-
-    print("Chunking audio...")
-    chunks = chunk_audio(wav_path)
-
+    is_url = source.startswith("http://") or source.startswith("https://")
+    wav_path = None
     try:
-        if source.startswith("http://") or source.startswith("https://"):
-            if os.path.exists(wav_path):
-                os.remove(wav_path)
-    except Exception as e:
-        print(f"Warning: could not delete downloaded audio file: {e}")
+        if is_url:
+            print("Detected YouTube URL. Downloading audio...")
+            wav_path = download_youtube_audio(source)
+            st.session_state.temp_wav_path = wav_path
+        else:
+            print("Detected local file. Converting to WAV...")
+            wav_path = convert_to_wav(source)
 
-    print(f"Audio ready — {len(chunks)} chunk(s) created.")
-    return chunks
+        print("Chunking audio...")
+        chunks = chunk_audio(wav_path)
+
+        print(f"Audio ready — {len(chunks)} chunk(s) created.")
+        return chunks
+    finally:
+        if wav_path and os.path.exists(wav_path):
+            try:
+                os.remove(wav_path)
+            except Exception as e:
+                print(f"Warning: could not delete intermediate audio file: {e}")
