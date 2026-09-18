@@ -222,5 +222,6 @@ Open http://localhost:8501, paste a YouTube URL, and click **⚡ Analyse**.
 I build RAG systems, AI assistants and LLM-powered tools, from prototype to deployment.
 
 - GitHub: [@deepanshu946](https://github.com/deepanshu946)
+- Email: [deepanshuagarwal946@gmail.com](mailto:deepanshuagarwal946@gmail.com)
 
 If you'd like something like this built for your business, get in touch.
