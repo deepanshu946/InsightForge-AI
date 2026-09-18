@@ -2,7 +2,9 @@
 
 **Turn any YouTube video or recording into a searchable knowledge base. You get a summary, chapters, key takeaways and Q&A, and you can chat with the video.**
 
-### 🔗 Live demo: **[insightforge--ai.streamlit.app](https://insightforge--ai.streamlit.app/)**
+### 🔗 Live demo: **[insightforge--ai.streamlit.app](https://insightforge--ai.streamlit.app/)** · ▶️ [Watch the video walkthrough](https://youtu.be/_WRUkaEJAgk)
+
+![InsightForge AI: video overview](assets/screenshots/overview.jpg)
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white)
@@ -34,6 +36,31 @@ Paste a YouTube link or a local file path, pick a language, and click **Analyse*
 | 📈 **Analytics** | Pipeline latency, question latency, reranker quality and retrieval-source distribution |
 
 Works with **English** and **Hinglish** (Hindi + English) audio. Hinglish is transcribed *and translated* to English by Sarvam AI.
+
+---
+
+## Screenshots
+
+[![Watch the demo](https://img.youtube.com/vi/_WRUkaEJAgk/maxresdefault.jpg)](https://youtu.be/_WRUkaEJAgk)
+<p align="center"><em>▶️ Click to watch the full walkthrough on YouTube</em></p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/chat.jpg" alt="Chat with the video"><br><b>Chat with the video:</b> answers grounded in the transcript</td>
+    <td width="50%"><img src="assets/screenshots/sources.jpg" alt="Transcript sources with scores"><br><b>Explainable retrieval:</b> each chunk shows how it was found (BM25 / vector / both), its RRF score and its rerank score</td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/web-search.jpg" alt="Web search augmentation"><br><b>Web augmentation:</b> a DuckDuckGo-backed answer alongside the transcript answer</td>
+    <td><img src="assets/screenshots/summary.jpg" alt="Executive summary"><br><b>Executive summary:</b> map-reduce summary of the whole video</td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/insights.jpg" alt="Chapters, takeaways and Q&A"><br><b>Chapters · Takeaways · Q&A:</b> generated side by side</td>
+    <td><img src="assets/screenshots/analytics.jpg" alt="Analytics dashboard"><br><b>Analytics dashboard:</b> pipeline and question latency</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="assets/screenshots/analytics-charts.jpg" alt="Reranker quality and retrieval source charts"><br><b>Retrieval quality:</b> Cohere rerank scores per query and transcript-vs-web answer distribution</td>
+  </tr>
+</table>
 
 ---
 
